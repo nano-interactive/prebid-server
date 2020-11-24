@@ -12,6 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prebid/prebid-server/endpoints/events"
+
+	"github.com/prebid/prebid-server/pbsmetrics"
+
 	"github.com/prebid/prebid-server/adapters"
 	"github.com/prebid/prebid-server/adapters/adform"
 	"github.com/prebid/prebid-server/adapters/appnexus"
@@ -186,6 +190,7 @@ func New(cfg *config.Configuration, rateConvertor *currencies.RateConverter) (r 
 
 	generalHttpClient := &http.Client{
 		Transport: &http.Transport{
+			MaxConnsPerHost:     cfg.Client.MaxConnsPerHost,
 			MaxIdleConns:        cfg.Client.MaxIdleConns,
 			MaxIdleConnsPerHost: cfg.Client.MaxIdleConnsPerHost,
 			IdleConnTimeout:     time.Duration(cfg.Client.IdleConnTimeout) * time.Second,
@@ -195,6 +200,7 @@ func New(cfg *config.Configuration, rateConvertor *currencies.RateConverter) (r 
 
 	cacheHttpClient := &http.Client{
 		Transport: &http.Transport{
+			MaxConnsPerHost:     cfg.CacheClient.MaxConnsPerHost,
 			MaxIdleConns:        cfg.CacheClient.MaxIdleConns,
 			MaxIdleConnsPerHost: cfg.CacheClient.MaxIdleConnsPerHost,
 			IdleConnTimeout:     time.Duration(cfg.CacheClient.IdleConnTimeout) * time.Second,
@@ -207,7 +213,7 @@ func New(cfg *config.Configuration, rateConvertor *currencies.RateConverter) (r 
 
 	// Metrics engine
 	r.MetricsEngine = metricsConf.NewMetricsEngine(cfg, legacyBidderList)
-	db, shutdown, fetcher, ampFetcher, categoriesFetcher, videoFetcher := storedRequestsConf.NewStoredRequests(cfg, r.MetricsEngine, generalHttpClient, r.Router)
+	db, shutdown, fetcher, ampFetcher, accounts, categoriesFetcher, videoFetcher := storedRequestsConf.NewStoredRequests(cfg, r.MetricsEngine, generalHttpClient, r.Router)
 
 	// todo(zachbadgett): better shutdown
 	r.Shutdown = shutdown
@@ -237,28 +243,28 @@ func New(cfg *config.Configuration, rateConvertor *currencies.RateConverter) (r 
 
 	exchanges = newExchangeMap(cfg)
 	cacheClient := pbc.NewClient(cacheHttpClient, &cfg.CacheURL, &cfg.ExtCacheURL, r.MetricsEngine)
-	theExchange := exchange.NewExchange(generalHttpClient, cacheClient, cfg, r.MetricsEngine, bidderInfos, gdprPerms, rateConvertor)
+	theExchange := exchange.NewExchange(generalHttpClient, cacheClient, cfg, r.MetricsEngine, bidderInfos, gdprPerms, rateConvertor, categoriesFetcher)
 
-	openrtbEndpoint, err := openrtb2.NewEndpoint(theExchange, paramsValidator, fetcher, categoriesFetcher, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap)
+	openrtbEndpoint, err := openrtb2.NewEndpoint(theExchange, paramsValidator, fetcher, accounts, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap)
 
 	if err != nil {
 		glog.Fatalf("Failed to create the openrtb endpoint handler. %v", err)
 	}
 
-	ampEndpoint, err := openrtb2.NewAmpEndpoint(theExchange, paramsValidator, ampFetcher, categoriesFetcher, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap)
+	ampEndpoint, err := openrtb2.NewAmpEndpoint(theExchange, paramsValidator, ampFetcher, accounts, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap)
 
 	if err != nil {
 		glog.Fatalf("Failed to create the amp endpoint handler. %v", err)
 	}
 
-	videoEndpoint, err := openrtb2.NewVideoEndpoint(theExchange, paramsValidator, fetcher, videoFetcher, categoriesFetcher, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap, cacheClient)
+	videoEndpoint, err := openrtb2.NewVideoEndpoint(theExchange, paramsValidator, fetcher, videoFetcher, accounts, cfg, r.MetricsEngine, pbsAnalytics, disabledBidders, defReqJSON, activeBiddersMap, cacheClient)
 	if err != nil {
 		glog.Fatalf("Failed to create the video endpoint handler. %v", err)
 	}
 
 	requestTimeoutHeaders := config.RequestTimeoutHeaders{}
 	if cfg.RequestTimeoutHeaders != requestTimeoutHeaders {
-		videoEndpoint = aspects.QueuedRequestTimeout(videoEndpoint, cfg.RequestTimeoutHeaders)
+		videoEndpoint = aspects.QueuedRequestTimeout(videoEndpoint, cfg.RequestTimeoutHeaders, r.MetricsEngine, pbsmetrics.ReqTypeVideo)
 	}
 
 	r.POST("/auction", endpoints.Auction(cfg, syncers, gdprPerms, r.MetricsEngine, dataCache, exchanges))
@@ -272,6 +278,16 @@ func New(cfg *config.Configuration, rateConvertor *currencies.RateConverter) (r 
 	r.GET("/status", endpoints.NewStatusEndpoint(cfg.StatusResponse))
 	r.GET("/", serveIndex)
 	r.ServeFiles("/static/*filepath", http.Dir("static"))
+
+	// vtrack endpoint
+	if cfg.VTrack.Enabled {
+		vtrackEndpoint := events.NewVTrackEndpoint(cfg, accounts, cacheClient, bidderInfos)
+		r.POST("/vtrack", vtrackEndpoint)
+	}
+
+	// event endpoint
+	eventEndpoint := events.NewEventEndpoint(cfg, accounts, pbsAnalytics)
+	r.GET("/event", eventEndpoint)
 
 	userSyncDeps := &pbs.UserSyncDeps{
 		HostCookieConfig: &(cfg.HostCookie),
