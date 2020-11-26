@@ -1,21 +1,25 @@
 package prometheusmetrics
 
 import (
+	"github.com/prebid/prebid-server/pbsmetrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 func preloadLabelValues(m *Metrics) {
 	var (
-		actionValues          = actionsAsString()
-		adapterValues         = adaptersAsString()
-		adapterErrorValues    = adapterErrorsAsString()
-		bidTypeValues         = []string{markupDeliveryAdm, markupDeliveryNurl}
-		boolValues            = boolValuesAsString()
-		cacheResultValues     = cacheResultsAsString()
-		cookieValues          = cookieTypesAsString()
-		connectionErrorValues = []string{connectionAcceptError, connectionCloseError}
-		requestStatusValues   = requestStatusesAsString()
-		requestTypeValues     = requestTypesAsString()
+		actionValues              = actionsAsString()
+		adapterErrorValues        = adapterErrorsAsString()
+		adapterValues             = adaptersAsString()
+		bidTypeValues             = []string{markupDeliveryAdm, markupDeliveryNurl}
+		boolValues                = boolValuesAsString()
+		cacheResultValues         = cacheResultsAsString()
+		connectionErrorValues     = []string{connectionAcceptError, connectionCloseError}
+		cookieValues              = cookieTypesAsString()
+		requestStatusValues       = requestStatusesAsString()
+		requestTypeValues         = requestTypesAsString()
+		storedDataFetchTypeValues = storedDataFetchTypesAsString()
+		storedDataErrorValues     = storedDataErrorsAsString()
+		sourceValues              = []string{sourceRequest}
 	)
 
 	preloadLabelValuesForCounter(m.connectionsError, map[string][]string{
@@ -42,6 +46,46 @@ func preloadLabelValues(m *Metrics) {
 		requestTypeLabel: requestTypeValues,
 	})
 
+	preloadLabelValuesForHistogram(m.storedAccountFetchTimer, map[string][]string{
+		storedDataFetchTypeLabel: storedDataFetchTypeValues,
+	})
+
+	preloadLabelValuesForHistogram(m.storedAMPFetchTimer, map[string][]string{
+		storedDataFetchTypeLabel: storedDataFetchTypeValues,
+	})
+
+	preloadLabelValuesForHistogram(m.storedCategoryFetchTimer, map[string][]string{
+		storedDataFetchTypeLabel: storedDataFetchTypeValues,
+	})
+
+	preloadLabelValuesForHistogram(m.storedRequestFetchTimer, map[string][]string{
+		storedDataFetchTypeLabel: storedDataFetchTypeValues,
+	})
+
+	preloadLabelValuesForHistogram(m.storedVideoFetchTimer, map[string][]string{
+		storedDataFetchTypeLabel: storedDataFetchTypeValues,
+	})
+
+	preloadLabelValuesForCounter(m.storedAccountErrors, map[string][]string{
+		storedDataErrorLabel: storedDataErrorValues,
+	})
+
+	preloadLabelValuesForCounter(m.storedAMPErrors, map[string][]string{
+		storedDataErrorLabel: storedDataErrorValues,
+	})
+
+	preloadLabelValuesForCounter(m.storedCategoryErrors, map[string][]string{
+		storedDataErrorLabel: storedDataErrorValues,
+	})
+
+	preloadLabelValuesForCounter(m.storedRequestErrors, map[string][]string{
+		storedDataErrorLabel: storedDataErrorValues,
+	})
+
+	preloadLabelValuesForCounter(m.storedVideoErrors, map[string][]string{
+		storedDataErrorLabel: storedDataErrorValues,
+	})
+
 	preloadLabelValuesForCounter(m.requestsWithoutCookie, map[string][]string{
 		requestTypeLabel: requestTypeValues,
 	})
@@ -51,6 +95,10 @@ func preloadLabelValues(m *Metrics) {
 	})
 
 	preloadLabelValuesForCounter(m.storedRequestCacheResult, map[string][]string{
+		cacheResultLabel: cacheResultValues,
+	})
+
+	preloadLabelValuesForCounter(m.accountCacheResult, map[string][]string{
 		cacheResultLabel: cacheResultValues,
 	})
 
@@ -83,6 +131,20 @@ func preloadLabelValues(m *Metrics) {
 		hasBidsLabel: boolValues,
 	})
 
+	if !m.metricsDisabled.AdapterConnectionMetrics {
+		preloadLabelValuesForCounter(m.adapterCreatedConnections, map[string][]string{
+			adapterLabel: adapterValues,
+		})
+
+		preloadLabelValuesForCounter(m.adapterReusedConnections, map[string][]string{
+			adapterLabel: adapterValues,
+		})
+
+		preloadLabelValuesForHistogram(m.adapterConnectionWaitTime, map[string][]string{
+			adapterLabel: adapterValues,
+		})
+	}
+
 	preloadLabelValuesForHistogram(m.adapterRequestsTimer, map[string][]string{
 		adapterLabel: adapterValues,
 	})
@@ -90,6 +152,31 @@ func preloadLabelValues(m *Metrics) {
 	preloadLabelValuesForCounter(m.adapterUserSync, map[string][]string{
 		adapterLabel: adapterValues,
 		actionLabel:  actionValues,
+	})
+
+	//to minimize memory usage, queuedTimeout metric is now supported for video endpoint only
+	//boolean value represents 2 general request statuses: accepted and rejected
+	preloadLabelValuesForHistogram(m.requestsQueueTimer, map[string][]string{
+		requestTypeLabel:   {string(pbsmetrics.ReqTypeVideo)},
+		requestStatusLabel: {requestSuccessLabel, requestRejectLabel},
+	})
+
+	preloadLabelValuesForCounter(m.privacyCCPA, map[string][]string{
+		sourceLabel: sourceValues,
+		optOutLabel: boolValues,
+	})
+
+	preloadLabelValuesForCounter(m.privacyCOPPA, map[string][]string{
+		sourceLabel: sourceValues,
+	})
+
+	preloadLabelValuesForCounter(m.privacyLMT, map[string][]string{
+		sourceLabel: sourceValues,
+	})
+
+	preloadLabelValuesForCounter(m.privacyTCF, map[string][]string{
+		sourceLabel:  sourceValues,
+		versionLabel: tcfVersionsAsString(),
 	})
 }
 

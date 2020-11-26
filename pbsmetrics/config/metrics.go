@@ -37,7 +37,7 @@ func NewMetricsEngine(cfg *config.Configuration, adapterList []openrtb_ext.Bidde
 	}
 	if cfg.Metrics.Prometheus.Port != 0 {
 		// Set up the Prometheus metrics.
-		returnEngine.PrometheusMetrics = prometheusmetrics.NewMetrics(cfg.Metrics.Prometheus)
+		returnEngine.PrometheusMetrics = prometheusmetrics.NewMetrics(cfg.Metrics.Prometheus, cfg.Metrics.Disabled)
 		engineList = append(engineList, returnEngine.PrometheusMetrics)
 	}
 
@@ -104,6 +104,20 @@ func (me *MultiMetricsEngine) RecordRequestTime(labels pbsmetrics.Labels, length
 	}
 }
 
+// RecordStoredDataFetchTime across all engines
+func (me *MultiMetricsEngine) RecordStoredDataFetchTime(labels pbsmetrics.StoredDataLabels, length time.Duration) {
+	for _, thisME := range *me {
+		thisME.RecordStoredDataFetchTime(labels, length)
+	}
+}
+
+// RecordStoredDataError across all engines
+func (me *MultiMetricsEngine) RecordStoredDataError(labels pbsmetrics.StoredDataLabels) {
+	for _, thisME := range *me {
+		thisME.RecordStoredDataError(labels)
+	}
+}
+
 // RecordAdapterPanic across all engines
 func (me *MultiMetricsEngine) RecordAdapterPanic(labels pbsmetrics.AdapterLabels) {
 	for _, thisME := range *me {
@@ -115,6 +129,21 @@ func (me *MultiMetricsEngine) RecordAdapterPanic(labels pbsmetrics.AdapterLabels
 func (me *MultiMetricsEngine) RecordAdapterRequest(labels pbsmetrics.AdapterLabels) {
 	for _, thisME := range *me {
 		thisME.RecordAdapterRequest(labels)
+	}
+}
+
+// Keeps track of created and reused connections to adapter bidders and the time from the
+// connection request, to the connection creation, or reuse from the pool across all engines
+func (me *MultiMetricsEngine) RecordAdapterConnections(bidderName openrtb_ext.BidderName, connWasReused bool, connWaitTime time.Duration) {
+	for _, thisME := range *me {
+		thisME.RecordAdapterConnections(bidderName, connWasReused, connWaitTime)
+	}
+}
+
+// Times the DNS resolution process
+func (me *MultiMetricsEngine) RecordDNSTime(dnsLookupTime time.Duration) {
+	for _, thisME := range *me {
+		thisME.RecordDNSTime(dnsLookupTime)
 	}
 }
 
@@ -160,6 +189,13 @@ func (me *MultiMetricsEngine) RecordStoredImpCacheResult(cacheResult pbsmetrics.
 	}
 }
 
+// RecordAccountCacheResult across all engines
+func (me *MultiMetricsEngine) RecordAccountCacheResult(cacheResult pbsmetrics.CacheResult, inc int) {
+	for _, thisME := range *me {
+		thisME.RecordAccountCacheResult(cacheResult, inc)
+	}
+}
+
 // RecordAdapterCookieSync across all engines
 func (me *MultiMetricsEngine) RecordAdapterCookieSync(adapter openrtb_ext.BidderName, gdprBlocked bool) {
 	for _, thisME := range *me {
@@ -178,6 +214,27 @@ func (me *MultiMetricsEngine) RecordUserIDSet(userLabels pbsmetrics.UserLabels) 
 func (me *MultiMetricsEngine) RecordPrebidCacheRequestTime(success bool, length time.Duration) {
 	for _, thisME := range *me {
 		thisME.RecordPrebidCacheRequestTime(success, length)
+	}
+}
+
+// RecordRequestQueueTime across all engines
+func (me *MultiMetricsEngine) RecordRequestQueueTime(success bool, requestType pbsmetrics.RequestType, length time.Duration) {
+	for _, thisME := range *me {
+		thisME.RecordRequestQueueTime(success, requestType, length)
+	}
+}
+
+// RecordTimeoutNotice across all engines
+func (me *MultiMetricsEngine) RecordTimeoutNotice(success bool) {
+	for _, thisME := range *me {
+		thisME.RecordTimeoutNotice(success)
+	}
+}
+
+// RecordRequestPrivacy across all engines
+func (me *MultiMetricsEngine) RecordRequestPrivacy(privacy pbsmetrics.PrivacyLabels) {
+	for _, thisME := range *me {
+		thisME.RecordRequestPrivacy(privacy)
 	}
 }
 
@@ -208,12 +265,28 @@ func (me *DummyMetricsEngine) RecordLegacyImps(labels pbsmetrics.Labels, numImps
 func (me *DummyMetricsEngine) RecordRequestTime(labels pbsmetrics.Labels, length time.Duration) {
 }
 
+// RecordStoredDataFetchTime as a noop
+func (me *DummyMetricsEngine) RecordStoredDataFetchTime(labels pbsmetrics.StoredDataLabels, length time.Duration) {
+}
+
+// RecordStoredDataError as a noop
+func (me *DummyMetricsEngine) RecordStoredDataError(labels pbsmetrics.StoredDataLabels) {
+}
+
 // RecordAdapterPanic as a noop
 func (me *DummyMetricsEngine) RecordAdapterPanic(labels pbsmetrics.AdapterLabels) {
 }
 
 // RecordAdapterRequest as a noop
 func (me *DummyMetricsEngine) RecordAdapterRequest(labels pbsmetrics.AdapterLabels) {
+}
+
+// RecordAdapterConnections as a noop
+func (me *DummyMetricsEngine) RecordAdapterConnections(bidderName openrtb_ext.BidderName, connWasReused bool, connWaitTime time.Duration) {
+}
+
+// RecordDNSTime as a noop
+func (me *DummyMetricsEngine) RecordDNSTime(dnsLookupTime time.Duration) {
 }
 
 // RecordAdapterBidReceived as a noop
@@ -248,6 +321,22 @@ func (me *DummyMetricsEngine) RecordStoredReqCacheResult(cacheResult pbsmetrics.
 func (me *DummyMetricsEngine) RecordStoredImpCacheResult(cacheResult pbsmetrics.CacheResult, inc int) {
 }
 
+// RecordAccountCacheResult as a noop
+func (me *DummyMetricsEngine) RecordAccountCacheResult(cacheResult pbsmetrics.CacheResult, inc int) {
+}
+
 // RecordPrebidCacheRequestTime as a noop
 func (me *DummyMetricsEngine) RecordPrebidCacheRequestTime(success bool, length time.Duration) {
+}
+
+// RecordRequestQueueTime as a noop
+func (me *DummyMetricsEngine) RecordRequestQueueTime(success bool, requestType pbsmetrics.RequestType, length time.Duration) {
+}
+
+// RecordTimeoutNotice as a noop
+func (me *DummyMetricsEngine) RecordTimeoutNotice(success bool) {
+}
+
+// RecordRequestPrivacy as a noop
+func (me *DummyMetricsEngine) RecordRequestPrivacy(privacy pbsmetrics.PrivacyLabels) {
 }

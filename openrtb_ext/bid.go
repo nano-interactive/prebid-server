@@ -12,11 +12,15 @@ type ExtBid struct {
 }
 
 // ExtBidPrebid defines the contract for bidresponse.seatbid.bid[i].ext.prebid
+// DealPriority represents priority of deal bid. If its non deal bid then value will be 0
+// DealTierSatisfied true represents corresponding bid has satisfied the deal tier
 type ExtBidPrebid struct {
-	Cache     *ExtBidPrebidCache `json:"cache,omitempty"`
-	Targeting map[string]string  `json:"targeting,omitempty"`
-	Type      BidType            `json:"type"`
-	Video     *ExtBidPrebidVideo `json:"video,omitempty"`
+	Cache             *ExtBidPrebidCache `json:"cache,omitempty"`
+	Targeting         map[string]string  `json:"targeting,omitempty"`
+	Type              BidType            `json:"type"`
+	Video             *ExtBidPrebidVideo `json:"video,omitempty"`
+	DealPriority      int                `json:"dealpriority,omitempty"`
+	DealTierSatisfied bool               `json:"dealtiersatisfied,omitempty"`
 }
 
 // ExtBidPrebidCache defines the contract for  bidresponse.seatbid.bid[i].ext.prebid.cache
@@ -87,7 +91,7 @@ const (
 	HbpbConstantKey TargetingKey = "hb_pb"
 
 	// HbEnvKey exists to support the Prebid Universal Creative. If it exists, the only legal value is mobile-app.
-	// It will exist only if the incoming bidRequest defiend request.app instead of request.site.
+	// It will exist only if the incoming bidRequest defined request.app instead of request.site.
 	HbEnvKey TargetingKey = "hb_env"
 
 	// HbCacheHost and HbCachePath exist to supply cache host and path as targeting parameters
@@ -98,6 +102,9 @@ const (
 	HbBidderConstantKey TargetingKey = "hb_bidder"
 	HbSizeConstantKey   TargetingKey = "hb_size"
 	HbDealIDConstantKey TargetingKey = "hb_deal"
+
+	// HbFormatKey is the format of the bid. For example, "video", "banner"
+	HbFormatKey TargetingKey = "hb_format"
 
 	// HbCacheKey and HbVastCacheKey store UUIDs which can be used to fetch things from prebid cache.
 	// Callers should *never* assume that either of these exist, since the call to the cache may always fail.
