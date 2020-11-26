@@ -2,6 +2,7 @@ package nanointeractive
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/mxmCherry/openrtb"
 	"github.com/prebid/prebid-server/adapters"
@@ -9,6 +10,8 @@ import (
 	"github.com/prebid/prebid-server/openrtb_ext"
 	"net/http"
 )
+
+var ErrNoImpressionsInBid = errors.New("no impressions in the bid request")
 
 type NanoInteractiveAdapter struct {
 	endpoint string
@@ -22,17 +25,13 @@ func (a *NanoInteractiveAdapter) SkipNoCookies() bool {
 	return false
 }
 
-func (a *NanoInteractiveAdapter) MakeRequests(bidRequest *openrtb.BidRequest, reqInfo *adapters.ExtraRequestInfo) ([]*adapters.RequestData, []error) {
+func (a *NanoInteractiveAdapter) MakeRequests(bidRequest *openrtb.BidRequest, reqInfo *adapters.ExtraRequestInfo) (adapterRequests []*adapters.RequestData, errs []error) {
+	validImps := make([]openrtb.Imp, 0, len(bidRequest.Imp))
 
-	var errs []error
-	var validImps []openrtb.Imp
+	referer := ""
+	for _, impl := range bidRequest.Imp {
 
-	var adapterRequests []*adapters.RequestData
-	var referer string = ""
-
-	for i := 0; i < len(bidRequest.Imp); i++ {
-
-		ref, err := checkImp(&bidRequest.Imp[i])
+		ref, err := checkImp(&impl)
 
 		// If the parsing is failed, remove imp and add the error.
 		if err != nil {
@@ -42,11 +41,11 @@ func (a *NanoInteractiveAdapter) MakeRequests(bidRequest *openrtb.BidRequest, re
 		if referer == "" && ref != "" {
 			referer = ref
 		}
-		validImps = append(validImps, bidRequest.Imp[i])
+		validImps = append(validImps, impl)
 	}
 
 	if len(validImps) == 0 {
-		errs = append(errs, fmt.Errorf("no impressions in the bid request"))
+		errs = append(errs, ErrNoImpressionsInBid)
 		return nil, errs
 	}
 
@@ -66,28 +65,11 @@ func (a *NanoInteractiveAdapter) MakeRequests(bidRequest *openrtb.BidRequest, re
 		return nil, errs
 	}
 
-	headers := http.Header{}
-	headers.Add("Content-Type", "application/json;charset=utf-8")
-	headers.Add("Accept", "application/json")
-	headers.Add("x-openrtb-version", "2.5")
-	if bidRequest.Device != nil {
-		headers.Add("User-Agent", bidRequest.Device.UA)
-		headers.Add("X-Forwarded-For", bidRequest.Device.IP)
-	}
-	if bidRequest.Site != nil {
-		headers.Add("Referer", bidRequest.Site.Page)
-	}
-
-	// set user's cookie
-	if bidRequest.User != nil && bidRequest.User.BuyerUID != "" {
-		headers.Add("Cookie", "Nano="+bidRequest.User.BuyerUID)
-	}
-
 	adapterRequests = append(adapterRequests, &adapters.RequestData{
-		Method:  "POST",
+		Method:  http.MethodPost,
 		Uri:     a.endpoint,
 		Body:    reqJSON,
-		Headers: headers,
+		Headers: createHeaders(bidRequest),
 	})
 
 	return adapterRequests, errs
@@ -96,8 +78,8 @@ func (a *NanoInteractiveAdapter) MakeRequests(bidRequest *openrtb.BidRequest, re
 func (a *NanoInteractiveAdapter) MakeBids(
 	internalRequest *openrtb.BidRequest,
 	externalRequest *adapters.RequestData,
-	response *adapters.ResponseData) (*adapters.BidderResponse, []error) {
-
+	response *adapters.ResponseData,
+) (*adapters.BidderResponse, []error) {
 	if response.StatusCode == http.StatusNoContent {
 		return nil, nil
 	} else if response.StatusCode == http.StatusBadRequest {
@@ -120,15 +102,13 @@ func (a *NanoInteractiveAdapter) MakeBids(
 	bidResponse.Currency = openRtbBidResponse.Cur
 
 	sb := openRtbBidResponse.SeatBid[0]
-	for i := 0; i < len(sb.Bid); i++ {
-		if !(sb.Bid[i].Price > 0) {
-			continue
+	for _, bid := range sb.Bid {
+		if bid.Price > 0 {
+			bidResponse.Bids = append(bidResponse.Bids, &adapters.TypedBid{
+				Bid:     &bid,
+				BidType: openrtb_ext.BidTypeBanner,
+			})
 		}
-		bid := sb.Bid[i]
-		bidResponse.Bids = append(bidResponse.Bids, &adapters.TypedBid{
-			Bid:     &bid,
-			BidType: openrtb_ext.BidTypeBanner,
-		})
 	}
 	return bidResponse, nil
 }
@@ -148,15 +128,46 @@ func checkImp(imp *openrtb.Imp) (string, error) {
 	if err := json.Unmarshal(bidderExt.Bidder, &nanoExt); err != nil {
 		return "", fmt.Errorf("ext.bidder not provided; ImpID=%s", imp.ID)
 	}
-	if nanoExt.Pid == "" {
-		return "", fmt.Errorf("pid is empty; ImpID=%s", imp.ID)
+
+	if nanoExt.Pid == "" && nanoExt.Nid == "" {
+		return "", fmt.Errorf("pid and nid are empty, one of them must be provided; ImpID=%s", imp.ID)
 	}
 
 	if nanoExt.Ref != "" {
-		return string(nanoExt.Ref), nil
+		return nanoExt.Ref, nil
 	}
 
 	return "", nil
+}
+
+func createHeaders(bidRequest *openrtb.BidRequest) http.Header {
+	values := [3]string{
+		"application/json;charset=utf-8", // Content-Type
+		"application/json",               // Accept
+		"2.5",                            // OpenRTB Version
+	}
+
+	headers := http.Header{
+		"Content-Type":      values[0:1],
+		"Accept":            values[1:2],
+		"X-Openrtb-Version": values[2:3],
+	}
+
+	if bidRequest.Device != nil {
+		headers["User-Agent"] = []string{bidRequest.Device.UA}
+		headers["X-Forwarded-IP"] = []string{bidRequest.Device.IP}
+	}
+
+	if bidRequest.Site != nil {
+		headers["Referer"] = []string{bidRequest.Site.Page}
+	}
+
+	// set user's cookie
+	if bidRequest.User != nil && bidRequest.User.BuyerUID != "" {
+		headers["Cookie"] = []string{"Nano=" + bidRequest.User.BuyerUID}
+	}
+
+	return headers
 }
 
 func NewNanoIneractiveBidder(endpoint string) *NanoInteractiveAdapter {

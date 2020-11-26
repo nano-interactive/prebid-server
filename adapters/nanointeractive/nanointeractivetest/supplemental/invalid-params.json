@@ -54,7 +54,7 @@
   },
   "expectedMakeRequestsErrors": [
     {
-      "value": "pid is empty; ImpID=test-imp-id-1",
+      "value": "pid and nid are empty, one of them must be provided; ImpID=test-imp-id-1",
       "comparison": "literal"
     },
     {
